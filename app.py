@@ -3,31 +3,32 @@ import peewee as p
 
 import json
 import datetime
-import requests
+import urllib.request
 
 db = p.SqliteDatabase('products.db')
 app = Flask("shopping")
 
-# Fonction pour récupérer et stocker les données des produits
-def fetch_and_store_products_data():
-    global products_data
-    # Effectuer une requête pour récupérer la liste complète des produits
-    response = requests.get('http://dimprojetu.uqac.ca/%7Ejgnault/shops/products/')
-    if response.status_code == 200:
-        products_data = response.json()
-        # Vous pouvez ensuite persister les données localement, par exemple dans un fichier JSON
-        with open('products.json', 'w') as f:
-            json.dump(products_data, f)
-    else:
-        # Gérer les erreurs de récupération des données des produits
-        print("Erreur lors de la récupération des données des produits:", response.status_code)
+# URL du service de produits
+url = 'http://dimprojetu.uqac.ca/%7Ejgnault/shops/products/'
 
-# Liste pour stocker les informations des produits
-products_data = None
+# Fonction pour récupérer les produits et les enregistrer localement
+def fetch_and_save_products():
+    global products
+    try:
+        # Envoie de la requête pour récupérer les produits
+        with urllib.request.urlopen(url) as response:
+            data = response.read().decode('utf-8')  # Lecture des données de la réponse
+            products = json.loads(data)  # Conversion des données JSON en un objet Python
+            # Enregistrement des produits localement, par exemple dans un fichier JSON
+            with open('products.json', 'w') as f:
+                json.dump(products, f)
+            print("Les produits ont été récupérés et enregistrés localement avec succès.")
+    except urllib.error.URLError as e:
+        print("Une erreur s'est produite lors de la récupération des produits:", e)
 
-# Récupérer et stocker les données des produits au démarrage de l'application
-fetch_and_store_products_data()
+# Exécuter la fonction pour récupérer et enregistrer les produits localement
+fetch_and_save_products()
 
 @app.route("/")
 def coucou():
-    return products_data
+    return products
