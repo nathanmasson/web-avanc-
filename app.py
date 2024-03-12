@@ -5,8 +5,12 @@ import json
 import datetime
 import urllib.request
 
-db = p.SqliteDatabase('products.db')
+db = p.SqliteDatabase('commandes.db')
 app = Flask("shopping")
+
+class BaseModel(p.Model):
+    class Meta:
+        database = db
 
 # URL du service de produits
 url = 'http://dimprojetu.uqac.ca/%7Ejgnault/shops/products/'
@@ -30,5 +34,42 @@ def fetch_and_save_products():
 fetch_and_save_products()
 
 @app.route("/")
-def coucou():
+def produits():
     return products
+
+class Commande(BaseModel):
+    id = p.AutoField(primary_key=True)
+    quantity = p.IntegerField(default=0, null=False, constraints=[p.Check('quantity > 1')])
+
+with app.app_context():
+    db.connect()
+    db.create_tables([Commande])
+
+@app.route("/order", methods=['POST'])
+def new_commande():
+# Vérifier si la requête contient le type de contenu JSON
+    if request.headers['Content-Type'] == 'application/json':
+        # Récupérer les données JSON de la requête
+        data = request.json
+
+        # Vérifier si les champs nécessaires sont présents
+        if 'product' not in data or 'id' not in data['product'] or 'quantity' not in data['product']:
+            return jsonify({'error': 'missing-fields'}), 400
+
+        # Récupérer l'identifiant du produit et la quantité
+        product_id = data['product']['id']
+        quantity = data['product']['quantity']
+
+        # Vérifier si la quantité est valide
+        if quantity < 1:
+            return jsonify({'error': 'invalid-quantity'}), 400
+
+        # Créer une nouvelle commande
+        order = Commande.create(id=product_id, quantity=quantity)
+
+        # Rediriger vers l'URL de la nouvelle commande avec le code 302
+        return jsonify({'ca marche boloss'}), 200
+    else:
+        # Retourner une erreur si le type de contenu n'est pas pris en charge
+        return jsonify({'error': 'unsupported-media-type'}), 415
+    
