@@ -191,6 +191,9 @@ def ajout_infos(order_id):
     if order is None:
         return abort(404)
 
+    if order.paid:
+        return jsonify({'error': 'La commande a déjà été payée'}), 422
+
     if 'order' in data:
         adress = data['order']['shipping_information']
 
@@ -237,7 +240,6 @@ def ajout_infos(order_id):
 
         url_paiment = "http://dimprojetu.uqac.ca/~jgnault/shops/pay/"
 
-
         # Créer une requête POST avec les données JSON
         req = urllib.request.Request(url_paiment, post_carte, headers={'Content-Type': 'application/json'})
 
@@ -254,9 +256,12 @@ def ajout_infos(order_id):
                 amount_charged=transaction_data['amount_charged']
             )
 
-                    
         new_card = dict_to_model(Card, response_data['credit_card'])
         new_card.save()
 
+        # Marquer la commande comme payée
+        order.paid = True
+        order.save()
 
         return jsonify(response_data)
+
