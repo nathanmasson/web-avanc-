@@ -185,50 +185,47 @@ def get_order(order_id):
 @app.route('/order/<int:order_id>', methods=['PUT'])
 def ajout_infos(order_id):
     data = request.json
-    #Vérifier si les champs nécessaires sont présents
 
- # Récupérer la commande de la base de données par son identifiant
+    # Récupérer la commande de la base de données par son identifiant
     order = Commande.get_or_none(Commande.id == order_id)
     if order is None:
         return abort(404)
 
     if 'order' in data:
-
         adress = data['order']['shipping_information']
 
-        if 'email' not in data['order'] or 'country' not in adress or 'adress' not in adress or 'postal_code' not in adress or 'city' not in adress or 'province' not in adress:
+        # Vérifier si les champs nécessaires sont présents
+        if 'email' not in data['order'] or not order.email:
+            return jsonify({'errors': {'email': 'L\'adresse e-mail est requise'}}), 422
+
+        if 'shipping_information' not in data['order']:
+            return jsonify({'errors': {'shipping_information': 'Les informations d\'expédition sont requises'}}), 422
+
+        if 'country' not in adress or 'adress' not in adress or 'postal_code' not in adress or 'city' not in adress or 'province' not in adress:
             return jsonify({'errors': {
-                'order': {
-                   'code': 'out-of-inventory',
-                   'name': "Il manque un ou plusieur champs obligatoires"
-               }
+                'shipping_information': 'Il manque un ou plusieurs champs obligatoires'
             }}), 422
-        
-        if order:
-          # Mise à jour des informations sur le client si elles sont fournies
-          if 'email' in data['order']:
-              order.email = data['order']['email']
-          if 'shipping_information' in data['order']:
-            #   new_adress = dict_to_model(Shipping, data['order']['shipping_information'])
-            #   new_adress.save()
-             # Shipping.update(shipping_information = order_id).where(order.id == order_id).execute()
-            Shipping.create(
-                country=adress["country"],
-                adress=adress["adress"],
-                postal_code=adress["postal_code"],
-                city=adress["city"],
-                province=adress["province"],
-                commande=order
-            )
+
+        # Mise à jour des informations sur le client si elles sont fournies
+        order.email = data['order']['email']
+        Shipping.create(
+            country=adress["country"],
+            adress=adress["adress"],
+            postal_code=adress["postal_code"],
+            city=adress["city"],
+            province=adress["province"],
+            commande=order
+        )
 
         # Sauvegarder les modifications dans la base de données
-          order.save()
+        order.save()
 
         return redirect(url_for("get_order", order_id=order.id, _method='GET'))
-        
-    
-    if 'credit_card' in data: 
 
+    if 'credit_card' in data:
+        # Vérifier si les informations d'expédition sont présentes
+        if not order.shipping:
+            return jsonify({'errors': {'shipping_information': 'Les informations d\'expédition sont requises'}}), 422
 
         montant_total = order.shipping_price
         
