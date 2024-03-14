@@ -24,13 +24,30 @@ class Produits(BaseModel):
     type = p.CharField()
     weight = p.IntegerField()
 
+class Shipping(BaseModel):
+    id = p.AutoField(primary_key=True)
+    country = p.CharField(null=True)
+    adress = p.CharField(null=True)
+    postal_code = p.CharField(null=True)
+    city = p.CharField(null=True)
+    province = p.CharField(null=True)
+
 class Commande(BaseModel):
     id = p.AutoField(primary_key=True)
+    total_price = p.FloatField(null=True)
+    id_produit = p.IntegerField()
     quantity = p.IntegerField(default=0, null=False, constraints=[p.Check('quantity > 1')])
+    email = p.CharField(null=True)
+    credit_card = {}
+    shipping_information = p.ForeignKeyField(Shipping, backref="shipping_info", null=True)
+    paid = p.BooleanField(default=False)
+    transaction = {}
+    product = {}
+    shipping_price = p.FloatField(null=True)
 
 with app.app_context():
     db.connect()
-    db.create_tables([Commande, Produits])
+    db.create_tables([Commande, Produits, Shipping])
 
 # URL du service de produits
 url = 'http://dimprojetu.uqac.ca/%7Ejgnault/shops/products/'
@@ -92,17 +109,7 @@ def new_commande():
     # Vérifier si la quantité est valide
     if quantity < 1:
         return jsonify({'error': 'invalid-quantity'}), 400
-
-    # Créer une nouvelle commande
-    order = Commande.create(id=product_id, quantity=quantity)
-
-    try:
-        order.save()
-    except p.IntegrityError:
-        return jsonify({
-        "error": "Un compte avec le même propriétaire existe déjà"
-    }), 422
-
+    
     product = Produits.get_or_none(Produits.id == product_id)
     if not product or not product.stock:
         return jsonify({
@@ -114,17 +121,67 @@ def new_commande():
             }
         }), 422
     
+    total_price = quantity * product.price
+
+    total_poids = quantity * product.weight
+
+    if total_poids <= 500:
+        frais_expedition = 5
+    elif 500 < total_poids <= 2000:
+        frais_expedition = 10
+    else:
+        frais_expedition = 25
+
+    shipping_price = total_price + frais_expedition
+
+
+    # Créer une nouvelle commande
+    order = Commande.create(id_produit=product_id, quantity=quantity, total_price=total_price, shipping_price = shipping_price)
+
+    try:
+        order.save()
+    except p.IntegrityError:
+        return jsonify({
+        "error": "Un compte avec le même propriétaire existe déjà"
+    }), 422
+    
+
     # Rediriger vers l'URL de la nouvelle commande avec le code 302
     return redirect(url_for("get_order", order_id=order.id, _method='GET'))
     
 
 @app.route('/order/<int:order_id>', methods=['GET'])
 def get_order(order_id):
+    order = Commande.get_or_none(order_id)
+    if order is None:
+        return abort(404)
+
+    return jsonify(model_to_dict(order))
+    
+
+@app.route('/order/<int:order_id>', methods=['PUT'])
+def ajout_infos(order_id):
+    data = request.json
+
+    # Vérifier si les champs nécessaires sont présents
+    if 'order' not in data:
+        return jsonify({'error': 'missing-fields'}), 422
+    
+    
+
     # Récupérer la commande de la base de données par son identifiant
     order = Commande.get_or_none(Commande.id == order_id)
+
     if order:
-        # Retourner les détails de la commande au format JSON
-        return jsonify({'id': order.id, 'quantity': order.quantity})
-    else:
-        # Retourner une erreur si la commande n'est pas trouvée
-        return jsonify({'error': 'order-not-found'}), 404
+        # Mise à jour des informations sur le client si elles sont fournies
+        if 'email' in data['order']:
+            order.email = data['order']['email']
+        if 'shipping_information' in data['order']:
+            new_transaction = dict_to_model(Shipping, data['order']['shipping_information'])
+            new_transaction.save()
+            Commande.update(shipping_information = order_id).where(order.id == order_id).execute()
+
+        # Sauvegarder les modifications dans la base de données
+        order.save()
+
+    return jsonify(model_to_dict(order))
