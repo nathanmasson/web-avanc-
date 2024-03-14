@@ -25,14 +25,6 @@ class Produits(BaseModel):
     type = p.CharField()
     weight = p.IntegerField()
 
-class Shipping(BaseModel):
-    id = p.AutoField(primary_key=True)
-    country = p.CharField(null=True)
-    adress = p.CharField(null=True)
-    postal_code = p.CharField(null=True)
-    city = p.CharField(null=True)
-    province = p.CharField(null=True)
-
 class Commande(BaseModel):
     id = p.AutoField(primary_key=True)
     total_price = p.FloatField(null=True)
@@ -40,24 +32,34 @@ class Commande(BaseModel):
     quantity = p.IntegerField(default=0, null=False, constraints=[p.Check('quantity > 1')])
     email = p.CharField(null=True)
     credit_card = p.TextField(null=True)
-    shipping_information = p.ForeignKeyField(Shipping, backref="shipping_info", null=True)
     paid = p.BooleanField(default=False)
-    transaction = {}
-    product = {}
     shipping_price = p.FloatField(null=True)
+
+class Shipping(BaseModel):
+    id = p.AutoField(primary_key=True)
+    country = p.CharField(null=True)
+    adress = p.CharField(null=True)
+    postal_code = p.CharField(null=True)
+    city = p.CharField(null=True)
+    province = p.CharField(null=True)
+    commande = p.ForeignKeyField(Commande, backref='shipping', null=True)
 
 class Card(BaseModel):
     id = p.AutoField()
     name = p.CharField()
-    number = p.CharField()
+    first_digits = p.CharField()
+    last_digits = p.CharField()
     expiration_year = p.IntegerField()
-    cvv = p.CharField()
     expiration_month = p.IntegerField()
+    commande = p.ForeignKeyField(Commande, backref='card', null=True)
+    
 
 class Transactions(BaseModel):
-    id = p.IntegerField()
-    succes = p.BooleanField()
+    id = p.CharField()
+    success = p.BooleanField()
     amount_charged = p.FloatField()
+    commande = p.ForeignKeyField(Commande, backref='transactions', null=True)
+
 
 with app.app_context():
     db.connect()
@@ -152,6 +154,8 @@ def new_commande():
     # Créer une nouvelle commande
     order = Commande.create(id_produit=product_id, quantity=quantity, total_price=total_price, shipping_price = shipping_price)
 
+
+
     try:
         order.save()
     except p.IntegrityError:
@@ -169,8 +173,13 @@ def get_order(order_id):
     order = Commande.get_or_none(order_id)
     if order is None:
         return abort(404)
+    
+    order_data = model_to_dict(order)
+    order_data['shipping_information'] = [model_to_dict(shipping) for shipping in order.shipping]
+    order_data['credit_card'] = [model_to_dict(card) for card in order.card]
+    order_data['transactions'] = [model_to_dict(transaction) for transaction in order.transactions]
 
-    return jsonify(model_to_dict(order))
+    return jsonify(order_data)
     
 
 @app.route('/order/<int:order_id>', methods=['PUT'])
@@ -200,14 +209,22 @@ def ajout_infos(order_id):
           if 'email' in data['order']:
               order.email = data['order']['email']
           if 'shipping_information' in data['order']:
-              new_transaction = dict_to_model(Shipping, data['order']['shipping_information'])
-              new_transaction.save()
-              Commande.update(shipping_information = order_id).where(order.id == order_id).execute()
+            #   new_adress = dict_to_model(Shipping, data['order']['shipping_information'])
+            #   new_adress.save()
+             # Shipping.update(shipping_information = order_id).where(order.id == order_id).execute()
+            Shipping.create(
+                country=adress["country"],
+                adress=adress["adress"],
+                postal_code=adress["postal_code"],
+                city=adress["city"],
+                province=adress["province"],
+                commande=order
+            )
 
         # Sauvegarder les modifications dans la base de données
           order.save()
 
-        return jsonify(model_to_dict(order))
+        return redirect(url_for("get_order", order_id=order.id, _method='GET'))
         
     
     if 'credit_card' in data: 
@@ -232,8 +249,17 @@ def ajout_infos(order_id):
             response_data = response.read().decode('utf-8')
             response_data = json.loads(response_data)
 
-            new_card = dict_to_model(Card, data['credit_card'])
-            new_card.save()
+        transaction_data = response_data.get('transaction')
+        if transaction_data:
+            new_transaction = Transactions.create(
+                id=transaction_data['id'],
+                success=transaction_data['success'],
+                amount_charged=transaction_data['amount_charged']
+            )
 
-        
+                    
+        new_card = dict_to_model(Card, response_data['credit_card'])
+        new_card.save()
+
+
         return jsonify(response_data)
