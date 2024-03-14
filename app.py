@@ -25,6 +25,29 @@ class Produits(BaseModel):
     type = p.CharField()
     weight = p.IntegerField()
 
+class Shipping(BaseModel):
+    id = p.AutoField(primary_key=True)
+    country = p.CharField(null=True)
+    adress = p.CharField(null=True)
+    postal_code = p.CharField(null=True)
+    city = p.CharField(null=True)
+    province = p.CharField(null=True)
+
+class Card(BaseModel):
+    id = p.AutoField()
+    name = p.CharField()
+    first_digits = p.CharField()
+    last_digits = p.CharField()
+    expiration_year = p.IntegerField()
+    expiration_month = p.IntegerField()
+    
+
+class Transactions(BaseModel):
+    id = p.AutoField()
+    id_transaction = p.CharField()
+    success = p.BooleanField()
+    amount_charged = p.FloatField()
+
 class Commande(BaseModel):
     id = p.AutoField(primary_key=True)
     total_price = p.FloatField(null=True)
@@ -34,31 +57,9 @@ class Commande(BaseModel):
     credit_card = p.TextField(null=True)
     paid = p.BooleanField(default=False)
     shipping_price = p.FloatField(null=True)
-
-class Shipping(BaseModel):
-    id = p.AutoField(primary_key=True)
-    country = p.CharField(null=True)
-    adress = p.CharField(null=True)
-    postal_code = p.CharField(null=True)
-    city = p.CharField(null=True)
-    province = p.CharField(null=True)
-    commande = p.ForeignKeyField(Commande, backref='shipping', null=True)
-
-class Card(BaseModel):
-    id = p.AutoField()
-    name = p.CharField()
-    first_digits = p.CharField()
-    last_digits = p.CharField()
-    expiration_year = p.IntegerField()
-    expiration_month = p.IntegerField()
-    commande = p.ForeignKeyField(Commande, backref='card', null=True)
-    
-
-class Transactions(BaseModel):
-    id = p.CharField()
-    success = p.BooleanField()
-    amount_charged = p.FloatField()
-    commande = p.ForeignKeyField(Commande, backref='transactions', null=True)
+    shipping_information = p.ForeignKeyField(Shipping, backref="shipping_information", null=True)
+    credit_card = p.ForeignKeyField(Card, backref="credit_card", null=True)
+    transaction = p.ForeignKeyField(Transactions, backref="transactions", null=True)
 
 
 with app.app_context():
@@ -175,10 +176,6 @@ def get_order(order_id):
         return abort(404)
     
     order_data = model_to_dict(order)
-    order_data['shipping_information'] = [model_to_dict(shipping) for shipping in order.shipping]
-    order_data['credit_card'] = [model_to_dict(card) for card in order.card]
-    order_data['transactions'] = [model_to_dict(transaction) for transaction in order.transactions]
-
     return jsonify(order_data)
     
 
@@ -208,17 +205,24 @@ def ajout_infos(order_id):
             return jsonify({'errors': {
                 'shipping_information': 'Il manque un ou plusieurs champs obligatoires'
             }}), 422
+        
+        if 'credit_card' in data['order'] and 'shipping_information' in data['order']:
+            return jsonify({'errors': {
+                'shipping_information': 'Impossible d\'envoyer les information de livraison et de paiement en même temps'
+            }}), 422
+
 
         # Mise à jour des informations sur le client si elles sont fournies
         order.email = data['order']['email']
-        Shipping.create(
+        new_shipping = Shipping.create(
             country=adress["country"],
             adress=adress["adress"],
             postal_code=adress["postal_code"],
             city=adress["city"],
-            province=adress["province"],
-            commande=order
+            province=adress["province"]
         )
+
+        order.shipping_information = new_shipping.id
 
         # Sauvegarder les modifications dans la base de données
         order.save()
@@ -227,7 +231,7 @@ def ajout_infos(order_id):
 
     if 'credit_card' in data:
         # Vérifier si les informations d'expédition sont présentes
-        if not order.shipping:
+        if not order.shipping_information:
             return jsonify({'errors': {'shipping_information': 'Les informations d\'expédition sont requises'}}), 422
 
         montant_total = order.shipping_price
@@ -251,28 +255,31 @@ def ajout_infos(order_id):
         transaction_data = response_data.get('transaction')
         if transaction_data:
             new_transaction = Transactions.create(
-                id=transaction_data['id'],
+                id_transaction=transaction_data['id'],
                 success=transaction_data['success'],
-                amount_charged=transaction_data['amount_charged'],
-                commande=order
+                amount_charged=transaction_data['amount_charged']
+                # commande=order
             )
+            order.transaction = new_transaction.id
 
     
-        Card.create(
-            name = response_data['credit_card']['name'],
-            first_digits = response_data['credit_card']['first_digits'],
-            last_digits = response_data['credit_card']['last_digits'],
-            expiration_year = response_data['credit_card']['expiration_year'],
-            expiration_month = response_data['credit_card']['expiration_month'],
-            commande=order
-        )
+        # Card.create(
+        #     name = response_data['credit_card']['name'],
+        #     first_digits = response_data['credit_card']['first_digits'],
+        #     last_digits = response_data['credit_card']['last_digits'],
+        #     expiration_year = response_data['credit_card']['expiration_year'],
+        #     expiration_month = response_data['credit_card']['expiration_month'],
+        #     commande=order
+        # )
 
-        # new_card = dict_to_model(Card, response_data['credit_card'])
-        # new_card.save()
+        new_card = dict_to_model(Card, response_data['credit_card'])
+        new_card.save()
+
+        order.credit_card = new_card.id
 
         # Marquer la commande comme payée
         order.paid = True
         order.save()
 
-        return jsonify(response_data)
+        return redirect(url_for("get_order", order_id=order.id, _method='GET'))
 
