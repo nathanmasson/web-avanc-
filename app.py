@@ -198,7 +198,7 @@ def ajout_infos(order_id):
         adress = data['order']['shipping_information']
 
         # Vérifier si les champs nécessaires sont présents
-        if 'email' not in data['order'] or not order.email:
+        if 'email' not in data['order']:
             return jsonify({'errors': {'email': 'L\'adresse e-mail est requise'}}), 422
 
         if 'shipping_information' not in data['order']:
@@ -253,11 +253,22 @@ def ajout_infos(order_id):
             new_transaction = Transactions.create(
                 id=transaction_data['id'],
                 success=transaction_data['success'],
-                amount_charged=transaction_data['amount_charged']
+                amount_charged=transaction_data['amount_charged'],
+                commande=order
             )
 
-        new_card = dict_to_model(Card, response_data['credit_card'])
-        new_card.save()
+    
+        Card.create(
+            name = response_data['credit_card']['name'],
+            first_digits = response_data['credit_card']['first_digits'],
+            last_digits = response_data['credit_card']['last_digits'],
+            expiration_year = response_data['credit_card']['expiration_year'],
+            expiration_month = response_data['credit_card']['expiration_month'],
+            commande=order
+        )
+
+        # new_card = dict_to_model(Card, response_data['credit_card'])
+        # new_card.save()
 
         # Marquer la commande comme payée
         order.paid = True
