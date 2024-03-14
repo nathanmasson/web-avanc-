@@ -47,15 +47,21 @@ class Commande(BaseModel):
     shipping_price = p.FloatField(null=True)
 
 class Card(BaseModel):
+    id = p.AutoField()
     name = p.CharField()
     number = p.CharField()
     expiration_year = p.IntegerField()
     cvv = p.CharField()
     expiration_month = p.IntegerField()
 
+class Transactions(BaseModel):
+    id = p.IntegerField()
+    succes = p.BooleanField()
+    amount_charged = p.FloatField()
+
 with app.app_context():
     db.connect()
-    db.create_tables([Commande, Produits, Shipping])
+    db.create_tables([Commande, Produits, Shipping, Card, Transactions])
 
 # URL du service de produits
 url_produits = 'http://dimprojetu.uqac.ca/%7Ejgnault/shops/products/'
@@ -206,6 +212,7 @@ def ajout_infos(order_id):
     
     if 'credit_card' in data: 
 
+
         montant_total = order.shipping_price
         
         # Ajouter le montant total dans les informations envoyées à l'API de paiement
@@ -224,5 +231,9 @@ def ajout_infos(order_id):
         with urllib.request.urlopen(req) as response:
             response_data = response.read().decode('utf-8')
             response_data = json.loads(response_data)
+
+            new_card = dict_to_model(Card, data['credit_card'])
+            new_card.save()
+
         
         return jsonify(response_data)
