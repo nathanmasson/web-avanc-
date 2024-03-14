@@ -116,7 +116,7 @@ def new_commande():
             'errors': {
                 'product': {
                     'code': 'out-of-inventory',
-                    'name': "Le produit demandé n'est pas en inventaire"
+                    'name': "Le produit demandé n'est pas en stock"
                 }
             }
         }), 422
@@ -162,16 +162,21 @@ def get_order(order_id):
 @app.route('/order/<int:order_id>', methods=['PUT'])
 def ajout_infos(order_id):
     data = request.json
-
+    adress = data['order']['shipping_information']
     # Vérifier si les champs nécessaires sont présents
-    if 'order' not in data:
-        return jsonify({'error': 'missing-fields'}), 422
+    if 'order' not in data or 'email' not in data['order'] or 'country' not in adress or 'adress' not in adress or 'postal_code' not in adress or 'city' not in adress or 'province' not in adress:
+        return jsonify({'errors': {
+                'order': {
+                    'code': 'out-of-inventory',
+                    'name': "Il manque un ou plusieur champs obligatoires"
+                }
+            }}), 422
     
-    
-
     # Récupérer la commande de la base de données par son identifiant
     order = Commande.get_or_none(Commande.id == order_id)
-
+    if order is None:
+        return abort(404)
+    
     if order:
         # Mise à jour des informations sur le client si elles sont fournies
         if 'email' in data['order']:
