@@ -4,6 +4,7 @@ import peewee as p
 import json
 import datetime
 import urllib.request
+from urllib.parse import urlencode
 from playhouse.shortcuts import model_to_dict, dict_to_model
 
 db = p.SqliteDatabase('commandes.db')
@@ -38,26 +39,33 @@ class Commande(BaseModel):
     id_produit = p.IntegerField()
     quantity = p.IntegerField(default=0, null=False, constraints=[p.Check('quantity > 1')])
     email = p.CharField(null=True)
-    credit_card = {}
+    credit_card = p.TextField(null=True)
     shipping_information = p.ForeignKeyField(Shipping, backref="shipping_info", null=True)
     paid = p.BooleanField(default=False)
     transaction = {}
     product = {}
     shipping_price = p.FloatField(null=True)
 
+class Card(BaseModel):
+    name = p.CharField()
+    number = p.CharField()
+    expiration_year = p.IntegerField()
+    cvv = p.CharField()
+    expiration_month = p.IntegerField()
+
 with app.app_context():
     db.connect()
     db.create_tables([Commande, Produits, Shipping])
 
 # URL du service de produits
-url = 'http://dimprojetu.uqac.ca/%7Ejgnault/shops/products/'
+url_produits = 'http://dimprojetu.uqac.ca/%7Ejgnault/shops/products/'
 
 # Fonction pour récupérer les produits et les enregistrer localement
 def fetch_and_save_products():
     global products
     try:
         # Envoie de la requête pour récupérer les produits
-        with urllib.request.urlopen(url) as response:
+        with urllib.request.urlopen(url_produits) as response:
             data = response.read().decode('utf-8')  # Lecture des données de la réponse
             products = json.loads(data)  # Conversion des données JSON en un objet Python
             # Supprimer les anciens produits de la base de données
@@ -162,31 +170,59 @@ def get_order(order_id):
 @app.route('/order/<int:order_id>', methods=['PUT'])
 def ajout_infos(order_id):
     data = request.json
-    adress = data['order']['shipping_information']
-    # Vérifier si les champs nécessaires sont présents
-    if 'order' not in data or 'email' not in data['order'] or 'country' not in adress or 'adress' not in adress or 'postal_code' not in adress or 'city' not in adress or 'province' not in adress:
-        return jsonify({'errors': {
-                'order': {
-                    'code': 'out-of-inventory',
-                    'name': "Il manque un ou plusieur champs obligatoires"
-                }
-            }}), 422
-    
-    # Récupérer la commande de la base de données par son identifiant
+    #Vérifier si les champs nécessaires sont présents
+
+ # Récupérer la commande de la base de données par son identifiant
     order = Commande.get_or_none(Commande.id == order_id)
     if order is None:
         return abort(404)
-    
-    if order:
-        # Mise à jour des informations sur le client si elles sont fournies
-        if 'email' in data['order']:
-            order.email = data['order']['email']
-        if 'shipping_information' in data['order']:
-            new_transaction = dict_to_model(Shipping, data['order']['shipping_information'])
-            new_transaction.save()
-            Commande.update(shipping_information = order_id).where(order.id == order_id).execute()
+
+    if 'order' in data:
+
+        adress = data['order']['shipping_information']
+
+        if 'email' not in data['order'] or 'country' not in adress or 'adress' not in adress or 'postal_code' not in adress or 'city' not in adress or 'province' not in adress:
+            return jsonify({'errors': {
+                'order': {
+                   'code': 'out-of-inventory',
+                   'name': "Il manque un ou plusieur champs obligatoires"
+               }
+            }}), 422
+        
+        if order:
+          # Mise à jour des informations sur le client si elles sont fournies
+          if 'email' in data['order']:
+              order.email = data['order']['email']
+          if 'shipping_information' in data['order']:
+              new_transaction = dict_to_model(Shipping, data['order']['shipping_information'])
+              new_transaction.save()
+              Commande.update(shipping_information = order_id).where(order.id == order_id).execute()
 
         # Sauvegarder les modifications dans la base de données
-        order.save()
+          order.save()
 
-    return jsonify(model_to_dict(order))
+        return jsonify(model_to_dict(order))
+        
+    
+    if 'credit_card' in data: 
+
+        montant_total = order.shipping_price
+        
+        # Ajouter le montant total dans les informations envoyées à l'API de paiement
+        data['amount_charged'] = montant_total
+
+        carte = json.dumps(data)
+        post_carte = carte.encode("UTF-8")
+
+        url_paiment = "http://dimprojetu.uqac.ca/~jgnault/shops/pay/"
+
+
+        # Créer une requête POST avec les données JSON
+        req = urllib.request.Request(url_paiment, post_carte, headers={'Content-Type': 'application/json'})
+
+        # Envoyer la requête
+        with urllib.request.urlopen(req) as response:
+            response_data = response.read().decode('utf-8')
+            response_data = json.loads(response_data)
+        
+        return jsonify(response_data)
