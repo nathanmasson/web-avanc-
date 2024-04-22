@@ -1,6 +1,8 @@
+import html
 import os
 from flask import Flask, jsonify, request, abort, redirect, url_for
 import peewee as p
+from rq import Queue, Worker
 
 import json
 import datetime
@@ -10,6 +12,7 @@ from playhouse.shortcuts import model_to_dict, dict_to_model
 from redis import Redis
 
 redis = Redis.from_url("redis://localhost")
+rq = Queue(connection=redis)
 
 db = p.PostgresqlDatabase(
     os.environ.get('DB_NAME', 'inf349'),
@@ -18,6 +21,9 @@ db = p.PostgresqlDatabase(
     host=os.environ.get('DB_HOST', 'localhost'),
     port=os.environ.get('DB_PORT', 5432)
 )
+
+# db = p.SqliteDatabase("commandes.db")
+
 app = Flask("shopping")
 
 class BaseModel(p.Model):
@@ -26,14 +32,14 @@ class BaseModel(p.Model):
 
 class Produits(BaseModel):
     id = p.IntegerField()
-    description = p.TextField()
-    height = p.IntegerField()
-    image = p.CharField()
-    stock = p.BooleanField()
-    name = p.CharField()
-    price = p.FloatField()
-    type = p.CharField()
-    weight = p.IntegerField()
+    description = p.TextField(null=True)
+    height = p.IntegerField(null=True)
+    image = p.CharField(null=True)
+    stock = p.BooleanField(null=True)
+    name = p.CharField(null=True)
+    price = p.FloatField(null=True)
+    type = p.CharField(null=True)
+    weight = p.IntegerField(null=True)
 
 class Shipping(BaseModel):
     id = p.AutoField(primary_key=True)
@@ -44,28 +50,28 @@ class Shipping(BaseModel):
     province = p.CharField(null=True)
 
 class Card(BaseModel):
-    id = p.AutoField()
-    name = p.CharField()
-    first_digits = p.CharField()
-    last_digits = p.CharField()
-    expiration_year = p.IntegerField()
-    expiration_month = p.IntegerField()
+    id = p.AutoField(null=True)
+    name = p.CharField(null=True)
+    first_digits = p.CharField(null=True)
+    last_digits = p.CharField(null=True)
+    expiration_year = p.IntegerField(null=True)
+    expiration_month = p.IntegerField(null=True)
     
 
 class Transactions(BaseModel):
-    id = p.AutoField()
-    id_transaction = p.CharField()
-    success = p.BooleanField()
-    amount_charged = p.FloatField()
+    id = p.AutoField(null=True)
+    id_transaction = p.CharField(null=True)
+    success = p.BooleanField(null=True)
+    amount_charged = p.FloatField(null=True)
 
 class Commande(BaseModel):
     id = p.AutoField(primary_key=True)
     total_price = p.FloatField(null=True)
-    id_produit = p.IntegerField()
-    quantity = p.IntegerField(default=0, null=False, constraints=[p.Check('quantity > 1')])
+    id_produit = p.IntegerField(null=True)
+    quantity = p.IntegerField(default=0, null=True, constraints=[p.Check('quantity > 1')])
     email = p.CharField(null=True)
     credit_card = p.TextField(null=True)
-    paid = p.BooleanField(default=False)
+    paid = p.BooleanField(default=False, null=True)
     shipping_price = p.FloatField(null=True)
     shipping_information = p.ForeignKeyField(Shipping, backref="shipping_information", null=True)
     credit_card = p.ForeignKeyField(Card, backref="credit_card", null=True)
@@ -75,6 +81,11 @@ class Commande(BaseModel):
 with app.app_context():
     db.connect()
     db.create_tables([Commande, Produits, Shipping, Card, Transactions])
+
+
+def clean_description(description):
+    # Supprimer les caractères nuls de la description
+    return description.replace('\x00', '')
 
 # URL du service de produits
 url_produits = 'http://dimprojetu.uqac.ca/%7Ejgnault/shops/products/'
@@ -93,7 +104,7 @@ def fetch_and_save_products():
             for product in products["products"]:
                 Produits.create(
                     id=product['id'],
-                    description=product['description'],
+                    description=clean_description(product['description']),
                     height=product['height'],
                     image=product['image'],
                     stock=product['in_stock'],
@@ -267,9 +278,13 @@ def ajout_infos(order_id):
         if not isinstance(cvv, str) or not cvv.isdigit() or len(cvv) != 3:
             return jsonify({'error': 'cvv doit être une chaîne de 3 chiffres'}), 422
 
+        work = rq.enqueue(paiement, order, data)
+
+        return redirect(url_for("check_work", work_id=work.id, _method='GET'))
+
+def paiement(order, data):
+            # Ajouter le montant total dans les informations envoyées à l'API de paiement
         montant_total = order.shipping_price
-        
-        # Ajouter le montant total dans les informations envoyées à l'API de paiement
         data['amount_charged'] = montant_total
 
         carte = json.dumps(data)
@@ -311,8 +326,23 @@ def ajout_infos(order_id):
             redis.set(cache_key, json.dumps(order_data))
             print(redis.get(cache_key))
 
-        return redirect(url_for("get_order", order_id=order.id, _method='GET'))
+        return "Patate"
+        
+    
+@app.route('/work/<string:work_id>', methods=['GET'])
+def check_work(work_id):
+    job = rq.fetch_job(work_id)
+    if not job.is_finished:
+        return jsonify(), 202
+
+    return job.result
+
 
 @app.cli.command("init-db")
 def init_db():
     db.create_tables([Commande, Produits, Shipping, Card, Transactions])
+
+@app.cli.command("worker")
+def rq_worker():
+    worker = Worker([rq], connection=redis)
+    worker.work()
