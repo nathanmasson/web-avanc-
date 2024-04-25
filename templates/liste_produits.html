@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}
+Page d'accueil
+{% endblock %}
+
+{% block content %}
+    {% for produit in data %}
+    <h2>{{ produit.name }}</h2>
+        <ul>
+            <li>ID du produit : {{ produit.id }}</li>
+            <li>Prix du produit : {{ produit.price }}</li>
+            <li>Nombre en stock : {{ produit.stock }}</li>
+            <li>Description du produit : {{ produit.description }}</li>
+            <li>Taille du produit : {{ produit.height }}</li>
+            <li>Type de produit : {{ produit.type }}</li>
+            <li>Poids du produit : {{ produit.weight }}</li>
+        </ul>
+    {% endfor %}
+{% endblock %}

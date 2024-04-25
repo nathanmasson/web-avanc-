@@ -1,8 +1,11 @@
 import html
 import os
-from flask import Flask, jsonify, request, abort, redirect, url_for
+from flask import Flask, jsonify, request, abort, redirect, url_for, render_template
 import peewee as p
 from rq import Queue, Worker
+from playhouse.postgres_ext import JSONField
+from flask_cors import CORS
+
 
 import json
 import datetime
@@ -63,11 +66,17 @@ class Transactions(BaseModel):
     id_transaction = p.CharField(null=True)
     success = p.BooleanField(null=True)
     amount_charged = p.FloatField(null=True)
+    # errors = JSONField(null=True)
+
+# class Ordered_products(BaseModel):
+#     id_produit = p.IntegerField()
+#     quantity = p.IntegerField(default=0, null=True, constraints=[p.Check('quantity > 1')])
 
 class Commande(BaseModel):
     id = p.AutoField(primary_key=True)
     total_price = p.FloatField(null=True)
-    id_produit = p.IntegerField(null=True)
+    # products = p.ForeignKeyField(Ordered_products, backref="ordered_products", null=True)
+    id_produit = p.IntegerField()
     quantity = p.IntegerField(default=0, null=True, constraints=[p.Check('quantity > 1')])
     email = p.CharField(null=True)
     credit_card = p.TextField(null=True)
@@ -86,6 +95,15 @@ with app.app_context():
 def clean_description(description):
     # Supprimer les caractères nuls de la description
     return description.replace('\x00', '')
+
+def calculate_shipping_price(total_weight):
+    if total_weight <= 500:
+        return 5
+    elif 500 < total_weight <= 2000:
+        return 10
+    else:
+        return 25
+
 
 # URL du service de produits
 url_produits = 'http://dimprojetu.uqac.ca/%7Ejgnault/shops/products/'
@@ -126,7 +144,7 @@ def produits():
     for produit in Produits.select():
         produits.append(model_to_dict(produit))
 
-    return jsonify(produits)
+    return render_template("liste_produits.html", data=produits)
 
 @app.route("/order", methods=['POST'])
 def new_commande():
@@ -196,7 +214,7 @@ def get_order(order_id):
     cache_key = "commande-{0}".format(order_id)
 
     if redis.exists(cache_key):
-        return json.loads(redis.get(cache_key))
+        return "patate", json.loads(redis.get(cache_key))
     
     else:
         order = Commande.get_or_none(order_id)
@@ -229,7 +247,7 @@ def ajout_infos(order_id):
         if 'shipping_information' not in data['order']:
             return jsonify({'errors': {'shipping_information': 'Les informations d\'expédition sont requises'}}), 422
 
-        if 'country' not in adress or 'adress' not in adress or 'postal_code' not in adress or 'city' not in adress or 'province' not in adress:
+        if 'country' not in adress or 'address' not in adress or 'postal_code' not in adress or 'city' not in adress or 'province' not in adress:
             return jsonify({'errors': {
                 'shipping_information': 'Il manque un ou plusieurs champs obligatoires'
             }}), 422
@@ -244,7 +262,7 @@ def ajout_infos(order_id):
         order.email = data['order']['email']
         new_shipping = Shipping.create(
             country=adress["country"],
-            adress=adress["adress"],
+            adress=adress["address"],
             postal_code=adress["postal_code"],
             city=adress["city"],
             province=adress["province"]
@@ -279,8 +297,12 @@ def ajout_infos(order_id):
             return jsonify({'error': 'cvv doit être une chaîne de 3 chiffres'}), 422
 
         work = rq.enqueue(paiement, order, data)
+        working = rq.fetch_job(work.id)
 
-        return redirect(url_for("check_work", work_id=work.id, _method='GET'))
+        return redirect(url_for("check_work", work_id=work.id, order=order_id, _method='GET'))
+    
+    if not working.is_finished:
+        return abort(409)
 
 def paiement(order, data):
             # Ajouter le montant total dans les informations envoyées à l'API de paiement
@@ -300,6 +322,7 @@ def paiement(order, data):
             response_data = response.read().decode('utf-8')
             response_data = json.loads(response_data)
 
+        # Créer un nouvel objet de transaction à partir des données de la réponse
         transaction_data = response_data.get('transaction')
         if transaction_data:
             new_transaction = Transactions.create(
@@ -316,8 +339,9 @@ def paiement(order, data):
         order.credit_card = new_card.id
 
         # Marquer la commande comme payée
-        order.paid = True
-        order.save()
+        if new_transaction.success:
+            order.paid = True
+            order.save()
 
         # si la commande est payée, on l'ajout dans le base de données redis
         if order.paid == True:
@@ -326,16 +350,17 @@ def paiement(order, data):
             redis.set(cache_key, json.dumps(order_data))
             print(redis.get(cache_key))
 
-        return "Patate"
-        
+        return "POTOT"
+
     
 @app.route('/work/<string:work_id>', methods=['GET'])
 def check_work(work_id):
+    order = request.args.get('order')
     job = rq.fetch_job(work_id)
     if not job.is_finished:
         return jsonify(), 202
-
-    return job.result
+    else:
+        return redirect(url_for("get_order", order_id=order, _method='GET'))
 
 
 @app.cli.command("init-db")

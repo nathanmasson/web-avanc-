@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}
+Page d'accueil
+{% endblock %}
+
+{% block content %}
+<h1>Commande {{ data.id }}</h1>
+<p>Prix sans frais de port : {{ data.total_price }}</p>
+<p>Prix avec frais de port : {{ data.shipping_price }}</p>
+<p>Email : {{ data.email }}</p>
+<p>Carte de crédit utilisée : {{ data.credit_card }}</p>
+<p>Commande payée? {% if data.paid != None %} Oui {% else %} Non {% endif %}</p>
+<p>Informations sur transaction : {{ data.transaction }}</p>
+<p>Informations de livraison : 
+    {% if data.shipping_informations != None %}
+    <ul>
+        <li>{{ data.shipping_information.adress }}</li>
+        <li>{{ data.shipping_information.city }}</li>
+        <li>{{ data.shipping_information.postal_code }}</li>
+        <li>{{ data.shipping_information.province }}</li>
+        <li>{{ data.shipping_information.country }}</li>
+    </ul></p>
+    {% endif %} 
+{% endblock %}

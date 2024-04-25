@@ -1,0 +1,4 @@
+psycopg2
+rq
+peewee
+flask
