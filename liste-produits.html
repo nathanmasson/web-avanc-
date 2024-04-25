@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liste des Produits</title>
+</head>
+<body>
+    <h1>Liste des Produits</h1>
+    <div id="product-list"></div>
+
+    <script>
+        // Charger la liste des produits au chargement de la page
+        window.onload = function() {
+            fetch('/').then(response => response.json())
+            .then(data => {
+                var productList = document.getElementById('product-list');
+                data.forEach(product => {
+                    productList.innerHTML += '<p>ID: ' + product.id + ', Nom: ' + product.name + ', Prix: ' + product.price + '</p>';
+                });
+            })
+            .catch(error => {
+                console.error('Erreur:', error);
+            });
+        };
+    </script>
+</body>
+</html>
