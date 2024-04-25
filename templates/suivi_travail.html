@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}
+Suivi du travail en arrière-plan
+{% endblock %}
+
+{% block content %}
+    <h1>Suivi du travail en arrière-plan</h1>
+    {% if status == "pending" %}
+        <p>Le travail est en cours d'exécution...</p>
+    {% elif status == "finished" %}
+        <p>Le travail est terminé !</p>
+    {% else %}
+        <p>Le travail n'existe pas ou a échoué.</p>
+    {% endif %}
+{% endblock %}
